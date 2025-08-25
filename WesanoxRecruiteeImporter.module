@@ -9,7 +9,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
         return array(
             'title' => 'wesanox Recruitee Importer',
             'summary' => 'The Recuitee Helper Module for Processwire. It imports the jobdata from Recruitee.',
-            'version' => '0.1.1',
+            'version' => '0.1.2',
             'author' => 'Frittenfritze',
             'href' => 'https://wesanox.de',
             'icon' => 'users',
@@ -133,7 +133,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
          * create fields
          */
         foreach ($this->fields_array as $field_array) {
-            $this->helper_fields->createFields($this->fields, $field_array);
+            $this->helper_fields->createFields($field_array);
         }
 
         /**
