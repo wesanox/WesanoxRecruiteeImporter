@@ -215,7 +215,7 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
                                 $p->headline = $offer->title;
                                 $p->text = $offer->description;
                                 $p->text_published = $offer->created_at;
-                                $p->link_extern = $offer->careers_url;
+                                $p->link_extern = $offer->careers_apply_url;
                                 $p->dynamic_city = $offer->city;
                                 $p->save();
 
