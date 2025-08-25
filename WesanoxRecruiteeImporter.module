@@ -1,0 +1,236 @@
+<?php
+
+namespace ProcessWire;
+
+class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableModule
+{
+    public static function getModuleInfo()
+    {
+        return array(
+            'title' => 'wesanox Recruitee Importer',
+            'summary' => 'The Recuitee Helper Module for Processwire. It imports the jobdata from Recruitee.',
+            'version' => '0.1.1',
+            'author' => 'Frittenfritze',
+            'href' => 'https://wesanox.de',
+            'icon' => 'users',
+            'singular' => true,
+            'autoload' => true,
+            'installs' => ['ProcessWesanoxRecruiteeImporter'],
+            'requires' => array(
+                'ProcessWire>=3.0.210',
+                'PHP>=8.0.0',
+                'WesanoxCareer>=0.0.1',
+            ),
+        );
+    }
+
+    /**
+     * @var array|string[] $external_modules
+     */
+    protected array $external_modules = [
+        'WesanoxCareer' => 'https://github.com/wesanox/WesanoxCareer/archive/refs/heads/main.zip',
+    ];
+
+    /**
+     * @var Module|_Module|null $helper_classes
+     * @var Module|_Module|null $helper_fields
+     */
+    protected Module|_Module|null $helper_fields;
+    protected Module|_Module|null $helper_classes;
+
+    /**
+     * @var array $fields_array
+     */
+    protected array $fields_array = [];
+
+    /**
+     * @var array $templates_career
+     */
+    protected array $templates_career =  [
+        'career',
+        'career_job'
+    ];
+
+    public function __construct()
+    {
+        parent::__construct();
+
+        $this->helper_classes = $this->modules->get('WesanoxHelperClasses');
+        $this->helper_fields = $this->modules->get('WesanoxHelperFields');
+
+        $this->fields_array = include $this->config->paths->WesanoxRecuiteeImporter . 'config/fields.php';
+    }
+
+    /**
+     * @return void
+     */
+    public function ready() : void
+    {
+        $this->addHookAfter('FieldtypeDynamicOptions::getSelectableOptions', $this, 'provideDynamicCity');
+        $this->addHookAfter('FieldtypeDynamicOptions::getSelectableOptions', $this, 'provideDynamicCompany');
+    }
+
+    /**
+     * Modul config
+     */
+    public static function getModuleConfigInputfields(array $data) : InputfieldWrapper
+    {
+        $inputfields = new InputfieldWrapper();
+
+        $f = wire('modules')->get('InputfieldText');
+        $f->name = 'url_recruitee';
+        $f->label = __('URL für den Import');
+        $f->description = __('Auch für die Städte / Unternehmen angeben.');
+        if (isset($data['url_recruitee'])) $f->value = $data['url_recruitee'];
+        $f->columnWidth = 50;
+        $inputfields->add($f);
+
+        $f = wire('modules')->get('InputfieldPage');
+        $f->name = 'parent_page';
+        $f->label = __('Wohin soll importiert werden?');
+        $f->parent_id = 1;
+        $f->labelFieldName = 'title';
+        $f->inputfield = 'InputfieldPageListSelect';
+        $f->columnWidth = 50;
+        $inputfields->add($f);
+
+        $f = wire('modules')->get('InputfieldTextarea');
+        $f->name = 'cities';
+        $f->label = __('Cities JSON - String');
+        if (isset($data['cities'])) $f->value = $data['cities'];
+        $f->columnWidth = 50;
+        $inputfields->add($f);
+
+        $f = wire('modules')->get('InputfieldTextarea');
+        $f->name = 'companies';
+        $f->label = __('Companies JSON - String');
+        if (isset($data['companies'])) $f->value = $data['companies'];
+        $f->columnWidth = 50;
+        $inputfields->add($f);
+
+        return $inputfields;
+    }
+
+    /**
+     * install method
+     *
+     * @return void
+     * @throws WireException
+     */
+    public function ___install(): void
+    {
+        /**
+         * Install external modules
+         */
+        foreach ($this->external_modules as $module_name => $module_url) {
+            if (!$this->modules->isInstalled($module_name)) {
+                $message = $this->helper_classes->downloadInstall($module_name, $module_url);
+                if ($message !== true) $this->error($message);
+            }
+        }
+
+        /**
+         * create fields
+         */
+        foreach ($this->fields_array as $field_array) {
+            $this->helper_fields->createFields($this->fields, $field_array);
+        }
+
+        /**
+         * add fields
+         */
+        foreach ($this->templates_career as $template_career) {
+            if ( $this->templates->get('template_' . $template_career) ) {
+                $t = $this->templates->get('template_' . $template_career);
+
+                $fg = $t->fieldgroup;
+
+                if ( $template_career === 'career_job' ) {
+                    $fg->remove('fieldset_settings_job_END');
+                    $fg->save();
+
+                    $fg->add('dynamic_city');
+                    $fg->add('dynamic_company');
+                    $fg->add('fieldset_settings_job_END');
+                }
+                $fg->save();
+
+                $t->fieldgroup = $fg;
+                $t->save();
+            }
+        }
+    }
+
+    public function ___uninstall(): void
+    {
+        /**
+         * delete template files
+         */
+        foreach ($this->templates_career as $template_career) {
+            if ( $this->templates->get('template_' . $template_career) ) {
+                if ( $template_career === 'career_job' ) {
+                    $fg = $this->fieldgroups->get('template_' . $template_career);
+                    $fg->remove('dynamic_city');
+                    $fg->remove('dynamic_company');
+                    $fg->save();
+                }
+            }
+        }
+
+        /**
+         * delete fields
+         */
+        $this->fields_array = array_reverse($this->fields_array);
+
+        foreach ($this->fields_array as $field) {
+            $field = $this->fields->get($field['name']);
+
+            if ($field && $field->getFieldgroups()->count == 0) {
+                $this->fields->delete($field);
+            }
+        }
+    }
+
+
+    /**
+     * @param HookEvent $event
+     * @return void
+     */
+    public function provideDynamicCity(HookEvent $event) : void
+    {
+        $field = $event->arguments(1);
+
+        if ($field->name === 'dynamic_city') {
+            $cities = json_decode($this->data['cities']);
+
+            $options = [];
+
+            foreach ($cities as $city) {
+                $options[$city] = $city;
+            }
+
+            $event->return = $options;
+        }
+    }
+
+    /**
+     * @param HookEvent $event
+     * @return void
+     */
+    public function provideDynamicCompany(HookEvent $event) : void
+    {
+        $field = $event->arguments(1);
+
+        if ($field->name === 'dynamic_company') {
+            $companies = json_decode($this->data['companies']);
+
+            $options = [];
+
+            foreach ($companies as $company) {
+                $options[$company] = $company;
+            }
+
+            $event->return = $options;
+        }
+    }
+}

@@ -1,0 +1,444 @@
+<?php
+
+namespace ProcessWire;
+
+class ProcessWesanoxRecruiteeImporter extends Process implements Module
+{
+
+
+    public static function getModuleInfo()
+    {
+        return array(
+            'title' => 'wesanox Recuitee Importer Process',
+            'summary' => 'The Recuitee Helper Module for Processwire. It imports the jobdata from Recruitee.',
+            'version' => '0.0.1',
+            'author' => 'wesanox',
+            'icon' => 'users',
+            'page'       => array(
+                'name' => 'wesanox-recuitee',
+                'parent' => 'setup',
+                'title' => 'Recuitee',
+            ),
+            'requires' => 'WesanoxRecruiteeImporter',
+        );
+    }
+
+    protected Module|_Module|Null $recruitee_module;
+    protected Module|_Module|Null $api_module;
+
+    protected \stdClass $recruitee_data;
+
+    protected array $cities = [];
+    protected array $companies = [];
+
+    private string|int|array|float $recruitee_config;
+
+    /**
+     * @return void
+     * @throws WireException
+     * @throws WirePermissionException
+     */
+    public function init() : void
+    {
+        $this->wire('modules')->get('JqueryUI')->use('vex');
+        parent::init();
+
+        $this->recruitee_module = $this->modules->get('WesanoxRecruiteeImporter');
+        $this->api_module = $this->modules->get('WesanoxApi');
+
+        $this->recruitee_config = $this->modules->getConfig('WesanoxRecruiteeImporter') ?: [];
+
+        if(isset($this->recruitee_module->url_recruitee)) {
+            $this->recruitee_data = json_decode($this->api_module->connection($this->recruitee_module->url_recruitee, '', array()));
+        }
+    }
+
+    /**
+     * @return string
+     * @throws WirePermissionException
+     */
+    public function ___execute() : string
+    {
+        $addImport = '';
+
+        if ( $this->recruitee_module->cities && $this->recruitee_module->companies) {
+            $button = wire('modules')->get('InputfieldButton');
+            $button->value = __('Import');
+            $button->attr('href', './import/');
+            $addImport = $button->render();
+        }
+
+        $button = wire('modules')->get('InputfieldButton');
+        $button->value = __('Get Cities');
+        $button->attr('href', './add-cities/');
+        $addCitiesButton = $button->render();
+
+        $button = wire('modules')->get('InputfieldButton');
+        $button->value = __('Get Companies');
+        $button->attr('href', './add-companies/');
+        $addCompaniesButton = $button->render();
+
+        return $this->renderTable() . $addImport . $addCompaniesButton . $addCitiesButton;
+    }
+
+    /**
+     * @return mixed
+     * @throws WirePermissionException
+     */
+    public function ___executeAddCities(): string
+    {
+        if(isset($this->recruitee_data) && $this->input->get('import')) {
+            foreach($this->recruitee_data as $recruitee_data) {
+                foreach($recruitee_data AS $data)
+                {
+                    $this->cities[] = $data->city;
+                }
+            }
+
+            $this->cities = array_unique($this->cities);
+
+            $this->modules->saveConfig('WesanoxRecruiteeImporter', [
+                'url_recruitee' => $this->recruitee_module->url_recruitee,
+                'cities' => json_encode($this->cities),
+                'companies' => $this->recruitee_module->companies,
+            ]);
+
+            $this->message(sprintf('%d Städte importiert.', count($this->cities)));
+
+            $this->session->redirect($this->page->url . 'add-cities/');
+        }
+
+        if ($this->input->post->submit) {
+            $this->modules->saveConfig('WesanoxRecruiteeImporter', array_merge($this->recruitee_config, [
+                'url_recruitee' => $this->input->post->url_recruitee,
+                'cities' => $this->input->post->cities,
+            ]));
+
+            $this->session->redirect($this->page->url . 'add-cities/');
+        }
+
+
+        $form = $this->buildCitiesForm();
+        $form->action = $this->page->url . 'add-cities/';
+
+        return $form->render();
+    }
+
+    /**
+     * @return string
+     * @throws WireException
+     * @throws WirePermissionException
+     */
+    public function ___executeAddCompanies(): string
+    {
+        if(isset($this->recruitee_data) && $this->input->get('import')) {
+            foreach($this->recruitee_data as $recruitee_data) {
+                foreach($recruitee_data AS $data)
+                {
+                    $this->companies[] = $data->company_name;
+                }
+            }
+
+            $this->companies = array_unique($this->companies);
+
+            $this->modules->saveConfig('WesanoxRecruiteeImporter', [
+                'url_recruitee' => $this->recruitee_module->url_recruitee,
+                'cities' => $this->recruitee_module->cities,
+                'companies' => json_encode($this->companies),
+            ]);
+
+            $this->message(sprintf('%d Unternehmen importiert.', count($this->companies)));
+
+            $this->session->redirect($this->page->url . 'add-companies/');
+        }
+
+        if ($this->input->post->submit) {
+            $this->modules->saveConfig('WesanoxRecruiteeImporter', array_merge($this->recruitee_config, [
+                'url_recruitee' => $this->input->post->url_recruitee,
+                'companies' => $this->input->post->companies,
+            ]));
+
+            $this->session->redirect($this->page->url . 'add-companies/');
+        }
+
+
+        $form = $this->buildCompaniesForm();
+        $form->action = $this->page->url . 'add-companies/';
+
+        return $form->render();
+    }
+
+    public function ___executeImport(): string
+    {
+        $cities = [];
+        $i = 0;
+
+        if(isset($this->recruitee_data) && $this->input->get('import')) {
+            if($this->recruitee_module->cities) {
+                if(!empty($this->recruitee_module->city_import)) {
+                    foreach ($this->recruitee_module->city_import as $city) {
+                        $cities[] = $city;
+                    }
+                } else {
+                    foreach (json_decode($this->recruitee_module->cities) as $city) {
+                        $cities[] = $city;
+                    }
+                }
+            }
+
+            foreach($this->recruitee_data as $recruitee_data) {
+                foreach ($recruitee_data AS $offer) {
+                    $matched = null;
+
+                    if (!empty($offer->locations) && is_array($offer->locations)) {
+                        foreach ($offer->locations as $loc) {
+                            $cityName = $loc->city ?? ($loc->name ?? '');
+
+                            foreach ($cities as $city) {
+                                if ($cityName !== '' && strcasecmp($cityName, $city) === 0) {
+                                    $matched = $loc;
+                                    break;
+                                }
+                            }
+
+                        }
+                    }
+
+                    if ($matched) {
+                        if ($offer->status === 'published') {
+                            if (!$this->pages->get('title=' . $offer->title)->id) {
+                                $p = new Page();
+                                $p->template = 'template_career_job';
+                                $p->parent = ($this->recruitee_module->parent_page_import) ? $this->pages->get($this->recruitee_module->parent_page_import) : 1;
+                                $p->title = $offer->title;
+                                $p->name = $offer->title;
+                                $p->headline = $offer->title;
+                                $p->text = $offer->description;
+                                $p->text_published = $offer->created_at;
+                                $p->link_extern = $offer->careers_url;
+                                $p->dynamic_city = $offer->city;
+                                $p->save();
+
+                                $i++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            $this->message(sprintf('%d Jobs importiert.', $i));
+
+            $this->session->redirect($this->page->url . 'import/');
+        }
+
+        if($this->input->post->submit) {
+            $selected_cities = (array) $this->input->post->city_import;
+            $selected_parent = (int) $this->input->post->parent_page_import;
+
+            $selected_cities = array_values(array_unique(array_filter($selected_cities, 'strlen')));
+
+            $this->modules->saveConfig('WesanoxRecruiteeImporter', array_merge($this->recruitee_config, [
+                'city_import' => $selected_cities,
+                'parent_page_import' => $selected_parent,
+            ]));
+
+            $this->message(__('Importsettings gespeichert.'));
+            $this->session->redirect($this->page->url . 'import');
+        }
+
+        $form = $this->buildImportForm();
+        $form->action = $this->page->url . 'import';
+
+        return $form->render();
+    }
+
+    /**
+     * @return InputfieldForm
+     * @throws WireException
+     * @throws WirePermissionException
+     */
+    private function buildCitiesForm(): InputfieldForm
+    {
+        $form = $this->modules->get('InputfieldForm');
+        $wrapper = $this->modules->get('InputfieldWrapper');
+
+        $f = wire('modules')->get('InputfieldText');
+        $f->name = 'url_recruitee';
+        $f->label = __('URL für den Import');
+        if (isset($this->recruitee_module->url_recruitee)) $f->value = $this->recruitee_module->url_recruitee;
+        $f->columnWidth = 100;
+        $wrapper->add($f);
+
+        $f = wire('modules')->get('InputfieldTextarea');
+        $f->name = 'cities';
+        $f->label = __('Cities JSON - String');
+        if (isset($this->recruitee_module->cities)) $f->value = $this->recruitee_module->cities;
+        $f->columnWidth = 100;
+        $wrapper->add($f);
+
+        $submit = $this->modules->get('InputfieldSubmit');
+        $submit->attr('name', 'submit');
+        $submit->attr('value', __('Save'));
+
+        $wrapper->add($submit);
+
+        if(isset($this->recruitee_module->url_recruitee)) {
+            $import_button = $this->modules->get('InputfieldButton');
+            $import_button->attr('value', __('Import Cities'));
+            $import_button->attr('href', './add-cities/?import=1');
+            $wrapper->add($import_button);
+        }
+
+        $form->add($wrapper);
+
+        return $form;
+    }
+
+    /**
+     * @return InputfieldForm
+     * @throws WireException
+     * @throws WirePermissionException
+     */
+    private function buildCompaniesForm(): InputfieldForm
+    {
+        $form = $this->modules->get('InputfieldForm');
+        $wrapper = $this->modules->get('InputfieldWrapper');
+
+        $f = wire('modules')->get('InputfieldText');
+        $f->name = 'url_recruitee';
+        $f->label = __('URL für den Import');
+        if (isset($this->recruitee_module->url_recruitee)) $f->value = $this->recruitee_module->url_recruitee;
+        $f->columnWidth = 100;
+        $wrapper->add($f);
+
+        $f = wire('modules')->get('InputfieldTextarea');
+        $f->name = 'companies';
+        $f->label = __('Companies JSON - String');
+        if (isset($this->recruitee_module->companies)) $f->value = $this->recruitee_module->companies;
+        $f->columnWidth = 100;
+        $wrapper->add($f);
+
+        $submit = $this->modules->get('InputfieldSubmit');
+        $submit->attr('name', 'submit');
+        $submit->attr('value', __('Save'));
+        $wrapper->add($submit);
+
+        if(isset($this->recruitee_module->url_recruitee)) {
+            $import_button = $this->modules->get('InputfieldButton');
+            $import_button->attr('value', __('Import Companies'));
+            $import_button->attr('href', './add-companies/?import=1');
+            $wrapper->add($import_button);
+        }
+
+        $form->add($wrapper);
+
+        return $form;
+    }
+
+    /**
+     * @return InputfieldForm
+     * @throws WireException
+     * @throws WirePermissionException
+     */
+    private function buildImportForm(): InputfieldForm
+    {
+        $form = $this->modules->get('InputfieldForm');
+        $wrapper = $this->modules->get('InputfieldWrapper');
+
+        $cities = [];
+
+
+        if($this->recruitee_module->cities) {
+            foreach (json_decode($this->recruitee_module->cities) as $city) {
+                $cities[] = $city;
+            }
+        }
+
+        $f = wire('modules')->get('InputfieldText');
+        $f->name = 'url_recruitee';
+        $f->label = __('URL für den Import');
+        $f->description = __('Auch für den Import der Städte / Unternehmen angeben.');
+        if (isset($this->recruitee_module->url_recruitee)) $f->value = $this->recruitee_module->url_recruitee;
+        $f->columnWidth = 100;
+        $wrapper->add($f);
+
+        $f = wire('modules')->get('InputfieldCheckboxes');
+        $f->name = 'city_import';
+        $f->label = __('Aus welchen Städt soll importiert werden?');
+        $f->description = __('WICHTIG - Bei Änderung der zu importierenden Städte erst speichern und dann Import starten!');
+        $f->columnWidth = 50;
+        $f->optionWidth = 1;
+        $cfg = $this->modules->getConfig('WesanoxRecruiteeImporter') ?: [];
+        $f->value = $cfg['city_import'] ?? [];
+        $f->addOptions(array_combine($cities, $cities));
+        $wrapper->add($f);
+
+        $f = wire('modules')->get('InputfieldPage');
+        $f->name = 'parent_page_import';
+        $f->label = __('Wohin soll importiert werden?');
+        $f->description = __('WICHTIG - Bei Änderung der Elternseite erst speichern und dann Import starten!');
+        $f->labelFieldName = 'title';
+        $f->inputfield = 'InputfieldPageListSelect';
+
+        if(isset($this->recruitee_module->parent_page_import)) {
+            $f->value = (int) $this->recruitee_module->parent_page_import;
+        }
+
+        $f->columnWidth = 50;
+        $wrapper->add($f);
+
+        $submit = $this->modules->get('InputfieldSubmit');
+        $submit->attr('name', 'submit');
+        $submit->attr('value', __('Save'));
+        $wrapper->add($submit);
+
+        if(isset($this->recruitee_module->url_recruitee)) {
+            $import_button = $this->modules->get('InputfieldButton');
+            $import_button->attr('value', __('Get Import'));
+            $import_button->attr('href', './import/?import=1');
+            $wrapper->add($import_button);
+        }
+
+        $form->add($wrapper);
+
+        return $form;
+    }
+
+    /**
+     * @return mixed
+     * @throws WirePermissionException
+     */
+    private function renderTable(): mixed
+    {
+        $table = $this->modules->get('MarkupAdminDataTable');
+
+        $table->setSortable(false);
+        $table->setEncodeEntities(false);
+        $table->headerRow([__('Id'), __('Title'), __('Link Extern'), __('Actions')]);
+
+        foreach ( $this->pages->find('template=template_career_job') AS $job) {
+            $buttonDelete = $this->modules->get('InputfieldButton');
+            $buttonDelete->value = 'delete';
+            $buttonDelete->icon = 'trash';
+            $buttonDelete->setSmall()->setSecondary();
+            $buttonDelete->attr('href', './delete/?id=' . $job->id);
+            $buttonDelete->addClass('InputfieldButtonLink');
+
+            $buttonTry = $this->modules->get('InputfieldButton');
+            $buttonTry->value = __('edit');
+            $buttonTry->icon = 'pencil';
+            $buttonTry->setSmall()->setSecondary();
+            $buttonTry->attr('href', '/pwadmin/page/edit/?id=' . $job->id . '');
+            $buttonTry->addClass('InputfieldButtonLink');
+
+            $table->row([
+                $job->id,
+                '<a href="/pwadmin/page/edit/?id=' . $job->id . '">' . $job->title . "</a>",
+                '<a href="' . $job->link_extern . '" target="_blank">' . $job->link_extern . '</a>',
+                $buttonDelete->render() . $buttonTry->render(),
+            ]);
+        }
+
+        return $table->render();
+    }
+}
