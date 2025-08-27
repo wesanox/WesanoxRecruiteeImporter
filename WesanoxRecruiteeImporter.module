@@ -9,7 +9,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
         return array(
             'title' => 'wesanox Recruitee Importer',
             'summary' => 'The Recuitee Helper Module for Processwire. It imports the jobdata from Recruitee.',
-            'version' => '0.1.2',
+            'version' => '0.1.3',
             'author' => 'Frittenfritze',
             'href' => 'https://wesanox.de',
             'icon' => 'users',

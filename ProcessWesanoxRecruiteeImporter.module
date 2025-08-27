@@ -135,7 +135,11 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
             foreach($this->recruitee_data as $recruitee_data) {
                 foreach($recruitee_data AS $data)
                 {
-                    $this->companies[] = $data->company_name;
+                    foreach ($data->tags AS $tag) {
+                        if (preg_match('/^\s*unternehmen\s*:\s*(.+)\s*$/iu', $tag, $m)) {
+                            $this->companies[] =  trim($m[1]);
+                        }
+                    }
                 }
             }
 
@@ -200,7 +204,12 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
                                     break;
                                 }
                             }
+                        }
+                    }
 
+                    foreach ($offer->tags as $tag) {
+                        if (preg_match('/^\s*unternehmen\s*:\s*(.+)\s*$/iu', $tag, $m)) {
+                            $company = trim($m[1]);
                         }
                     }
 
@@ -213,10 +222,12 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
                                 $p->title = $offer->title;
                                 $p->name = $offer->title;
                                 $p->headline = $offer->title;
+                                $p->headline_tags = 1;
                                 $p->text = $offer->description;
                                 $p->text_published = $offer->created_at;
                                 $p->link_extern = $offer->careers_apply_url;
                                 $p->dynamic_city = $offer->city;
+                                $p->dynamic_company = $company ?? '';
                                 $p->save();
 
                                 $i++;

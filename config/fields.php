@@ -8,7 +8,10 @@ return [
         'tags' => 'dynamic',
         'icon' => 'Magic',
         'width' => 50,
-        'inputfield_class' => 'InputfieldSelect',
+        'inputfield_class' => [
+            'InputfieldSelect',
+            'InputfieldCheckboxes'
+        ],
     ],
     [
         'name' => 'dynamic_company',
@@ -17,6 +20,9 @@ return [
         'tags' => 'dynamic',
         'icon' => 'Magic',
         'width' => 50,
-        'inputfield_class' => 'InputfieldSelect',
+        'inputfield_class' => [
+            'InputfieldSelect',
+            'InputfieldCheckboxes'
+        ],
     ],
 ];
