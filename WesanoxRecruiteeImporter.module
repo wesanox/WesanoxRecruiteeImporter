@@ -15,7 +15,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
             'icon' => 'users',
             'singular' => true,
             'autoload' => true,
-            'installs' => ['ProcessWesanoxRecruiteeImporter'],
+            'installs' => ['ProcessWesanoxRecruiteeImporter', 'LazyCron'],
             'requires' => array(
                 'ProcessWire>=3.0.210',
                 'PHP>=8.0.0',
@@ -23,6 +23,13 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
             ),
         );
     }
+
+    /**
+     * @var array|string[] $internal_modules
+     */
+    protected array $internal_modules = [
+        'LazyCron'
+    ];
 
     /**
      * @var array|string[] $external_modules
@@ -120,6 +127,15 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
     public function ___install(): void
     {
         /**
+         * Install internal modules
+         */
+        foreach ($this->internal_modules as $module_name) {
+            if (!$this->modules->isInstalled($module_name)) {
+                $this->modules->get($module_name);
+            }
+        }
+
+        /**
          * Install external modules
          */
         foreach ($this->external_modules as $module_name => $module_url) {
@@ -151,6 +167,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
 
                     $fg->add('dynamic_city');
                     $fg->add('dynamic_company');
+                    $fg->add('text_recruitee_id');
                     $fg->add('fieldset_settings_job_END');
                 }
                 $fg->save();
@@ -172,6 +189,7 @@ class WesanoxRecruiteeImporter extends WireData implements Module, ConfigurableM
                     $fg = $this->fieldgroups->get('template_' . $template_career);
                     $fg->remove('dynamic_city');
                     $fg->remove('dynamic_company');
+                    $fg->remove('text_recruitee_id');
                     $fg->save();
                 }
             }

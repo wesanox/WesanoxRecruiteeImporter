@@ -25,4 +25,14 @@ return [
             'InputfieldCheckboxes'
         ],
     ],
+    [
+        'name' => 'text_recruitee_id',
+        'type' => 'Text',
+        'label' => 'Recruitee ID',
+        'tags' => 'text',
+        'icon' => 'File text o',
+        'collapsed' => 4,
+        'width' => 100,
+        'formatter' => 'TextformatterEntities'
+    ]
 ];

@@ -4,8 +4,6 @@ namespace ProcessWire;
 
 class ProcessWesanoxRecruiteeImporter extends Process implements Module
 {
-
-
     public static function getModuleInfo()
     {
         return array(
@@ -51,6 +49,10 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
         if(isset($this->recruitee_module->url_recruitee)) {
             $this->recruitee_data = json_decode($this->api_module->connection($this->recruitee_module->url_recruitee, '', array()));
         }
+
+        $this->addHook('LazyCron::everyDay', function() {
+            $this->importRecruiteeData($this->recruitee_data);
+        });
     }
 
     /**
@@ -172,72 +174,15 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
         return $form->render();
     }
 
+    /**
+     * @return string
+     * @throws WireException
+     * @throws WirePermissionException
+     */
     public function ___executeImport(): string
     {
-        $cities = [];
-        $i = 0;
-
         if(isset($this->recruitee_data) && $this->input->get('import')) {
-            if($this->recruitee_module->cities) {
-                if(!empty($this->recruitee_module->city_import)) {
-                    foreach ($this->recruitee_module->city_import as $city) {
-                        $cities[] = $city;
-                    }
-                } else {
-                    foreach (json_decode($this->recruitee_module->cities) as $city) {
-                        $cities[] = $city;
-                    }
-                }
-            }
-
-            foreach($this->recruitee_data as $recruitee_data) {
-                foreach ($recruitee_data AS $offer) {
-                    $matched = null;
-
-                    if (!empty($offer->locations) && is_array($offer->locations)) {
-                        foreach ($offer->locations as $loc) {
-                            $cityName = $loc->city ?? ($loc->name ?? '');
-
-                            foreach ($cities as $city) {
-                                if ($cityName !== '' && strcasecmp($cityName, $city) === 0) {
-                                    $matched = $loc;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    foreach ($offer->tags as $tag) {
-                        if (preg_match('/^\s*unternehmen\s*:\s*(.+)\s*$/iu', $tag, $m)) {
-                            $company = trim($m[1]);
-                        }
-                    }
-
-                    if ($matched) {
-                        if ($offer->status === 'published') {
-                            if (!$this->pages->get('title=' . $offer->title)->id) {
-                                $p = new Page();
-                                $p->template = 'template_career_job';
-                                $p->parent = ($this->recruitee_module->parent_page_import) ? $this->pages->get($this->recruitee_module->parent_page_import) : 1;
-                                $p->title = $offer->title;
-                                $p->name = $offer->title;
-                                $p->headline = $offer->title;
-                                $p->headline_tags = 1;
-                                $p->text = $offer->description;
-                                $p->text_published = $offer->created_at;
-                                $p->link_extern = $offer->careers_apply_url;
-                                $p->dynamic_city = $offer->city;
-                                $p->dynamic_company = $company ?? '';
-                                $p->save();
-
-                                $i++;
-                            }
-                        }
-                    }
-                }
-            }
-
-            $this->message(sprintf('%d Jobs importiert.', $i));
+            $this->importRecruiteeData($this->recruitee_data);
 
             $this->session->redirect($this->page->url . 'import/');
         }
@@ -261,6 +206,100 @@ class ProcessWesanoxRecruiteeImporter extends Process implements Module
         $form->action = $this->page->url . 'import';
 
         return $form->render();
+    }
+
+    /**
+     * @param $json_recruitee_data
+     * @return void
+     * @throws WireException
+     */
+    private function importRecruiteeData($json_recruitee_data): void
+    {
+        $current_ids = [];
+        $cities = [];
+        $i = 0;
+
+        if($this->recruitee_module->cities) {
+            if(!empty($this->recruitee_module->city_import)) {
+                foreach ($this->recruitee_module->city_import as $city) {
+                    $cities[] = $city;
+                }
+            } else {
+                foreach (json_decode($this->recruitee_module->cities) as $city) {
+                    $cities[] = $city;
+                }
+            }
+        }
+
+        foreach($json_recruitee_data as $recruitee_data) {
+            foreach ($recruitee_data AS $offer) {
+                $matched = null;
+
+                if (!empty($offer->locations) && is_array($offer->locations)) {
+                    foreach ($offer->locations as $loc) {
+                        $cityName = $loc->city ?? ($loc->name ?? '');
+
+                        foreach ($cities as $city) {
+                            if ($cityName !== '' && strcasecmp($cityName, $city) === 0) {
+                                $matched = $loc;
+                                break;
+                            }
+                        }
+
+                    }
+                }
+
+                foreach ($offer->tags as $tag) {
+                    if (preg_match('/^\s*unternehmen\s*:\s*(.+)\s*$/iu', $tag, $m)) {
+                        $company = trim($m[1]);
+                    }
+                }
+
+                if ($matched) {
+                    if ($offer->status === 'published') {
+                        $p = $this->pages->get("template=template_career_job, title=$offer->title");
+
+                        $current_ids[] = (int) $offer->id;
+
+                        if (!$p->id) {
+                            $p = new Page();
+                            $p->template = 'template_career_job';
+                            $p->parent = ($this->recruitee_module->parent_page_import) ? $this->pages->get($this->recruitee_module->parent_page_import) : 1;
+                            $p->title = $offer->title;
+                            $p->name = $offer->title;
+                            $p->headline = $offer->title;
+                            $p->headline_tags = 1;
+                            $p->text = $offer->description;
+                            $p->text_published = $offer->created_at;
+                            $p->link_extern = $offer->careers_apply_url;
+                            $p->dynamic_city = $offer->city;
+                            $p->dynamic_company = $company ?? '';
+                            $p->text_recruitee_id = $offer->id;
+                            $p->save();
+
+                            $i++;
+                        } else {
+                            $p->of(false);
+                            $p->text = $offer->description;
+                            $p->text_published = $offer->created_at;
+                            $p->link_extern = $offer->careers_apply_url;
+                            $p->dynamic_city = $offer->city;
+                            $p->dynamic_company = $company ?? '';
+                            $p->text_recruitee_id = $offer->id;
+                            $p->save();
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach($this->pages->find("template=template_career_job") AS $page) {
+            if(!in_array($page->text_recruitee_id, $current_ids) || !$page->text_recruitee_id) {
+                $this->pages->delete($page);
+            }
+        }
+
+        $this->message(sprintf('%d Jobs importiert.', $i));
     }
 
     /**
